@@ -4,6 +4,10 @@ Escriba el codigo que ejecute la accion solicitada.
 
 # pylint: disable=import-outside-toplevel
 
+import os
+import zipfile
+import glob
+import pandas as pd
 
 def clean_campaign_data():
     """
@@ -49,6 +53,62 @@ def clean_campaign_data():
 
 
     """
+
+    os.makedirs("files/output", exist_ok=True)
+
+    all_dfs = []
+    for zip_path in sorted(glob.glob("files/input/*.zip")):
+        with zipfile.ZipFile(zip_path, "r") as z:
+            for name in z.namelist():
+                if name.endswith(".csv"):
+                    with z.open(name) as f:
+                        df = pd.read_csv(f)
+                        all_dfs.append(df)
+
+    data = pd.concat(all_dfs, ignore_index=True)
+
+    # --- client.csv ---
+    client = data[["client_id", "age", "job", "marital", "education",
+                   "credit_default", "mortgage"]].copy()
+
+    client["job"] = client["job"].str.replace(".", "", regex=False).str.replace("-", "_", regex=False)
+    client["education"] = (
+        client["education"]
+        .str.replace(".", "_", regex=False)
+        .replace("unknown", pd.NA)
+    )
+    client["credit_default"] = (client["credit_default"] == "yes").astype(int)
+    client["mortgage"] = (client["mortgage"] == "yes").astype(int)
+
+    client.to_csv("files/output/client.csv", index=False)
+
+    # --- campaign.csv ---
+    month_map = {
+        "jan": "01", "feb": "02", "mar": "03", "apr": "04",
+        "may": "05", "jun": "06", "jul": "07", "aug": "08",
+        "sep": "09", "oct": "10", "nov": "11", "dec": "12"
+    }
+
+    campaign = data[["client_id", "number_contacts", "contact_duration",
+                     "previous_campaign_contacts", "previous_outcome",
+                     "campaign_outcome", "day", "month"]].copy()
+
+    campaign["previous_outcome"] = (campaign["previous_outcome"] == "success").astype(int)
+    campaign["campaign_outcome"] = (campaign["campaign_outcome"] == "yes").astype(int)
+
+    campaign["last_contact_date"] = (
+        "2022-"
+        + campaign["month"].str.lower().map(month_map)
+        + "-"
+        + campaign["day"].astype(str).str.zfill(2)
+    )
+
+    campaign = campaign.drop(columns=["day", "month"])
+    campaign.to_csv("files/output/campaign.csv", index=False)
+
+    # --- economics.csv ---
+    economics = data[["client_id", "cons_price_idx", "euribor_three_months"]].copy()
+    economics.to_csv("files/output/economics.csv", index=False)
 
     return
 
